@@ -8,14 +8,31 @@
   var STROKE = {Freestyle: "Free", Backstroke: "Back", Breaststroke: "Breast",
                 Butterfly: "Fly", "Individual Medley": "IM", Medley: "IM",
                 Free: "Free", Back: "Back", Breast: "Breast", Fly: "Fly", IM: "IM"};
-  var GROUP_ELIGIBLE = {
-    "10&U": ["10 & Under"], "11-12": ["11-12"], "13-14": ["13-14"],
-    "12&U": ["10 & Under", "11-12"], "11&Over": ["11-12", "13-14"], "13&Over": ["13-14"]};
   var ORDER = ["B", "BB", "A", "AA", "AAA", "AAAA"];
   var GOOD = 2.0, STRETCH = 4.0, STALE_DAYS = 120;
   var TIME_RE = /#?\d{1,2}:\d{2}\.\d{2}|#?\d{1,3}\.\d{2}/g;
-  var EVENT_RE = /(\d{1,2}\s*&\s*U(?:nder)?|\d{1,2}\s*&\s*Over|11-12|13-14)\s+(\d{2,4})\s+(?:[MYmy]\s+)?(Freestyle|Backstroke|Breaststroke|Butterfly|Individual Medley|Medley|Free|Back|Breast|Fly|IM)\b/;
-  function normGroup(g) { return g.replace(/\s+/g, "").replace("Under", "U"); }
+  var EVENT_RE = /(\d{1,2}\s*&\s*(?:U(?:nder)?|O(?:ver)?)|\d{1,2}-\d{1,2})\s+(\d{2,4})\s*(?:[MYmy]\s*)?(Freestyle|Backstroke|Breaststroke|Butterfly|Individual Medley|Medley|Free|Back|Breast|Fly|IM)\b/;
+  function normGroup(g) { return g.replace(/\s+/g, "").replace("Under", "U").replace("Over", "O"); }
+  function ageRange(label) {
+    var g = normGroup(label), m;
+    if ((m = /^(\d{1,2})&U$/.exec(g))) return [0, parseInt(m[1], 10)];
+    if ((m = /^(\d{1,2})&O$/.exec(g))) return [parseInt(m[1], 10), 99];
+    if ((m = /^(\d{1,2})-(\d{1,2})$/.exec(g))) return [parseInt(m[1], 10), parseInt(m[2], 10)];
+    return null;
+  }
+  function eventsForAge(spec, age) {
+    var merged = {};
+    Object.keys(spec.events).forEach(function (g) {
+      var r = ageRange(g);
+      if (r && r[0] <= age && age <= r[1]) {
+        Object.keys(spec.events[g]).forEach(function (ev) {
+          var cut = spec.events[g][ev];
+          if (!(ev in merged) || (cut.cutLCM && !merged[ev].cutLCM)) merged[ev] = cut;
+        });
+      }
+    });
+    return merged;
+  }
   var MONTHS = ["January","February","March","April","May","June","July","August",
                 "September","October","November","December"];
 
@@ -92,16 +109,27 @@
     var start = d ? d[3] + "-" + pad(MONTHS.indexOf(d[1]) + 1) + "-" + pad(d[2]) : "";
     var w = text.match(/prior to\s+(\w+)\s+(\d{1,2}),?\s+(\d{4})/);
     var win = w ? w[3] + "-" + pad(MONTHS.indexOf(w[1]) + 1) + "-" + pad(w[2]) : "";
-    var nums = {one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8};
-    var mx = text.match(/(?:maximum of|enter up to)\s+(\w+)(?:\s*\((\d+)\))?\s+(?:individual\s+)?events/);
-    var maxEv = null;
-    if (mx) maxEv = mx[2] ? parseInt(mx[2], 10)
-      : (/^\d+$/.test(mx[1]) ? parseInt(mx[1], 10) : (nums[mx[1].toLowerCase()] || null));
+    var maxEv = maxEvents(text);
     var b = text.match(/(?:up to\s+)?(?:a total of\s+)?(\w+)\s*\((\d+)\)\s+bonus events/i);
     var bonus = b ? parseInt(b[2], 10) : 0;
     return {name: name, course: course, start: start, window: win, maxEvents: maxEv, bonus: bonus};
   }
   function pad(n) { return (n < 10 ? "0" : "") + n; }
+  var NUMWORDS = {one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10};
+  function numVal(word, paren) {
+    if (paren) return parseInt(paren, 10);
+    if (/^\d+$/.test(word)) return parseInt(word, 10);
+    return NUMWORDS[word.toLowerCase()];
+  }
+  function maxEvents(text) {
+    // Prefer "maximum of / no more than N events" not qualified by "per day"/"on <day>".
+    var totals = [], re1 = /(?:maximum of|no more than)\s+(\w+)\s*(?:\((\d+)\))?\s+(?:individual\s+)?events\b(?!\s+(?:per|on|each|a\b))/gi, m;
+    while ((m = re1.exec(text))) { var n = numVal(m[1], m[2]); if (n && n >= 1 && n <= 15) totals.push(n); }
+    if (totals.length) return Math.max.apply(null, totals);
+    var all = [], re2 = /(\w+)\s*(?:\((\d+)\))?\s+(?:individual\s+)?events/gi;
+    while ((m = re2.exec(text))) { var v = numVal(m[1], m[2]); if (v && v >= 1 && v <= 15) all.push(v); }
+    return all.length ? Math.max.apply(null, all) : null;
+  }
 
   // ---- session schedule + venue (mirrors code/meet_pdf.py) ----
   var PER_EVENT_MIN = 22;
@@ -173,22 +201,15 @@
   }
 
   function toSpec(text) {
-    var pg = parseGroups(text), meta = meetMeta(text), events = {};
-    var sessions = parseSessions(text);
-    Object.keys(pg.groups).forEach(function (pdfGrp) {
-      (GROUP_ELIGIBLE[pdfGrp] || []).forEach(function (swimGrp) {
-        var dest = events[swimGrp] || (events[swimGrp] = {});
-        Object.keys(pg.groups[pdfGrp]).forEach(function (ev) {
-          var cut = pg.groups[pdfGrp][ev];
-          if (!(ev in dest) || (Object.keys(cut).length && !Object.keys(dest[ev]).length))
-            dest[ev] = Object.assign({}, cut);
-        });
-      });
-    });
-    Object.keys(events).forEach(function (grp) {
-      Object.keys(events[grp]).forEach(function (ev) {
-        var n = events[grp][ev].num;
-        if (n && sessions[n]) events[grp][ev].session = sessions[n];
+    var pg = parseGroups(text), meta = meetMeta(text);
+    var sessions = parseSessions(text), events = {};
+    // Key events by the normalized PDF age label; eligibility resolved per swimmer by age.
+    Object.keys(pg.groups).forEach(function (grp) {
+      events[grp] = {};
+      Object.keys(pg.groups[grp]).forEach(function (ev) {
+        var cut = Object.assign({}, pg.groups[grp][ev]);
+        if (cut.num && sessions[cut.num]) cut.session = sessions[cut.num];
+        events[grp][ev] = cut;
       });
     });
     return {meet: meta.name || "Meet", course: meta.course, startDate: meta.start,
@@ -231,7 +252,7 @@
                startDate: spec.startDate, window: spec.qualifyingWindowStart,
                venue: spec.venue, swimmers: []};
     data.swimmers.forEach(function (sw) {
-      var offered = spec.events[sw.ageGroup] || {}, pbs = pbsByEvent(sw);
+      var offered = eventsForAge(spec, sw.age), pbs = pbsByEvent(sw);
       var qual = [], near = [], notime = [];
       Object.keys(offered).forEach(function (ev) {
         var cut = offered[ev], lcm = (pbs[ev] || {}).LCM, scy = (pbs[ev] || {}).SCY;
@@ -287,7 +308,7 @@
     var out = {type: "open", meet: spec.meet, course: course,
                startDate: spec.startDate, maxEvents: maxEv, swimmers: []};
     data.swimmers.forEach(function (sw) {
-      var grp = sw.ageGroup, offered = spec.events[grp] || {}, pbs = pbsByEvent(sw);
+      var grp = sw.ageGroup, offered = eventsForAge(spec, sw.age), pbs = pbsByEvent(sw);
       var rows = [];
       Object.keys(offered).forEach(function (ev) {
         var here = (pbs[ev] || {})[course], other = null;
