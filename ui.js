@@ -65,8 +65,7 @@
         wrap.appendChild(t2);
       }
     });
-    $("#pulled").textContent = "Times last refreshed " + (window.SWIM_PULLED_AT || DATA.pulledAt) +
-      ". To update, run “Check a swim meet” or code/swim_data.py.";
+    $("#pulled").textContent = "Times last refreshed " + (window.SWIM_PULLED_AT || DATA.pulledAt) + ".";
   }
 
   // ---------- meet result ----------
