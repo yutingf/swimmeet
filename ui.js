@@ -98,13 +98,21 @@
     out.scrollIntoView({behavior: "smooth"});
   }
 
+  function lab(sw, ev) {  // "50 Breast (#100)"
+    var n = sw.numOf && sw.numOf[ev];
+    return esc(ev) + (n ? " (#" + n + ")" : "");
+  }
+  function labList(sw, evs) {
+    return evs.map(function (e) { return lab(sw, e); }).join(", ");
+  }
+
   function renderQualify(card, sw) {
     if (sw.enter.length) {
       var total = sw.enter.length + (sw.bonus ? sw.bonus.length : 0);
       card.appendChild(el("div", "suggest ok",
-        "<strong>Sign up for " + total + ":</strong> qualified: " + esc(sw.enter.join(", ")) +
+        "<strong>Sign up for " + total + ":</strong> qualified: " + labList(sw, sw.enter) +
         (sw.bonus && sw.bonus.length
-          ? ". <strong>Bonus (no cut needed): " + esc(sw.bonus.join(", ")) + "</strong>"
+          ? ". <strong>Bonus (no cut needed): " + labList(sw, sw.bonus) + "</strong>"
           : "") + ". <span class='muted'>Qualifying is banked, so enter every qualified event" +
         (sw.bonus && sw.bonus.length
           ? "; because he qualifies for one, the meet allows up to " + sw.bonusAllow +
@@ -116,31 +124,26 @@
         (sw.near.length ? "Closest: " + esc(sw.near[0].event) + " (" + esc(sw.near[0].row.time) +
           "), " + S.csToStr(sw.near[0].off) + " over the " + sw.near[0].course + " cut." : "")));
     }
-    if (sw.chase && sw.chase.length && sw.chase[0].off <= 200) {
-      card.appendChild(el("p", "chase", "Worth chasing before entries close: <strong>" +
-        esc(sw.chase[0].event) + "</strong> is only " + S.csToStr(sw.chase[0].off) +
-        " over the " + sw.chase[0].course + " cut."));
-    }
     if (sw.qual.length) {
       var t = el("table");
-      t.innerHTML = "<thead><tr><th>Qualified event</th><th>By</th><th>His time</th><th>Standard</th><th>Under by</th></tr></thead>";
+      t.innerHTML = "<thead><tr><th>Qualified event</th><th>#</th><th>By</th><th>His time</th><th>Standard</th><th>Under by</th></tr></thead>";
       var tb = el("tbody");
       sw.qual.forEach(function (q) {
-        tb.appendChild(el("tr", "q-yes", "<td>" + esc(q.event) + "</td><td>" + q.course +
-          "</td><td>" + esc(q.row.time) + "</td><td>" + S.csToStr(q.std) + "</td><td>" +
-          S.csToStr(q.under) + "</td>"));
+        tb.appendChild(el("tr", "q-yes", "<td>" + esc(q.event) + "</td><td>" + (q.num || "") +
+          "</td><td>" + q.course + "</td><td>" + esc(q.row.time) + "</td><td>" +
+          S.csToStr(q.std) + "</td><td>" + S.csToStr(q.under) + "</td>"));
       });
       t.appendChild(tb); card.appendChild(t);
     }
     if (sw.near.length) {
       card.appendChild(el("p", "muted", "Closest near-misses:"));
       var t2 = el("table");
-      t2.innerHTML = "<thead><tr><th>Event</th><th>Course</th><th>His time</th><th>Standard</th><th>Off by</th></tr></thead>";
+      t2.innerHTML = "<thead><tr><th>Event</th><th>#</th><th>Course</th><th>His time</th><th>Standard</th><th>Off by</th></tr></thead>";
       var tb2 = el("tbody");
       sw.near.forEach(function (n) {
-        tb2.appendChild(el("tr", null, "<td>" + esc(n.event) + "</td><td>" + n.course +
-          "</td><td>" + esc(n.row.time) + "</td><td>" + S.csToStr(n.std) + "</td><td>" +
-          S.csToStr(n.off) + "</td>"));
+        tb2.appendChild(el("tr", null, "<td>" + esc(n.event) + "</td><td>" + (n.num || "") +
+          "</td><td>" + n.course + "</td><td>" + esc(n.row.time) + "</td><td>" +
+          S.csToStr(n.std) + "</td><td>" + S.csToStr(n.off) + "</td>"));
       });
       t2.appendChild(tb2); card.appendChild(t2);
     }
@@ -149,7 +152,7 @@
   function renderOpen(card, sw, maxEv) {
     if (sw.picks.length) {
       var pick = sw.picks.map(function (p) {
-        return "<strong>" + esc(p.event) + "</strong>" +
+        return "<strong>" + esc(p.event) + (p.num ? " (#" + p.num + ")" : "") + "</strong>" +
           (p === sw.explore && p.pct > S.STRETCH ? " (re-test, PB " + Math.floor(p.days / 30) +
             " mo old)" : " (drop " + S.csToStr(p.need) + " for " + p.next + ")");
       }).join(", ");
@@ -159,7 +162,7 @@
       card.appendChild(el("div", "suggest none", "No timed event with a reachable next cut."));
     }
     var t = el("table");
-    t.innerHTML = "<thead><tr><th>Event</th><th>Best</th><th>Level</th><th>Next</th><th>Need</th><th>Need%</th><th>PB age</th><th>Value</th></tr></thead>";
+    t.innerHTML = "<thead><tr><th>Event</th><th>#</th><th>Best</th><th>Level</th><th>Next</th><th>Need</th><th>Need%</th><th>PB age</th><th>Value</th></tr></thead>";
     var tb = el("tbody");
     sw.rows.forEach(function (r) {
       var pb = r.here ? r.here.time : (r.other ? "NT (best " + r.other.time + " " + r.other.course + ")" : "NT");
@@ -171,15 +174,15 @@
       else { value = r.stale ? "RE-TEST (PB stale)" : "low value"; cls = r.stale ? "v-retest" : ""; }
       var isPick = sw.picks.indexOf(r) >= 0;
       tb.appendChild(el("tr", (isPick ? "picked " : "") + cls,
-        "<td>" + esc(r.event) + "</td><td>" + esc(pb) + "</td><td>" + esc(r.level) +
-        "</td><td>" + esc(r.next) + "</td><td>" + (r.need ? S.csToStr(r.need) : "") +
-        "</td><td>" + (r.pct ? r.pct.toFixed(1) + "%" : "") + "</td><td>" + age +
-        "</td><td>" + esc(value) + "</td>"));
+        "<td>" + esc(r.event) + "</td><td>" + (r.num || "") + "</td><td>" + esc(pb) +
+        "</td><td>" + esc(r.level) + "</td><td>" + esc(r.next) + "</td><td>" +
+        (r.need ? S.csToStr(r.need) : "") + "</td><td>" + (r.pct ? r.pct.toFixed(1) + "%" : "") +
+        "</td><td>" + age + "</td><td>" + esc(value) + "</td>"));
     });
     t.appendChild(tb); card.appendChild(t);
     if (sw.blind.length) card.appendChild(el("p", "muted",
       "Blind options (no time in this course, your call): " +
-      sw.blind.map(function (r) { return esc(r.event); }).join(", ") + "."));
+      sw.blind.map(function (r) { return lab(sw, r.event); }).join(", ") + "."));
   }
 
   // ---------- PDF -> text (layout reconstruction) ----------

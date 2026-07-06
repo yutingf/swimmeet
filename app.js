@@ -55,11 +55,20 @@
       var event = parseInt(m[2], 10) + " " + STROKE[m[3]];
       var before = line.slice(0, m.index), after = line.slice(m.index + m[0].length);
       var ta = after.match(TIME_RE) || [];
+      var num = eventNum(before, after);
       var g = groups[grp] || (groups[grp] = {});
-      if (ta.length >= 2) { g[event] = {cutLCM: cs(ta[0]), cutSCY: cs(ta[1])}; timed++; }
-      else if (!g[event]) g[event] = {};
+      if (ta.length >= 2) { g[event] = {cutLCM: cs(ta[0]), cutSCY: cs(ta[1]), num: num}; timed++; }
+      else if (!g[event]) g[event] = {num: num};
+      else if (num && g[event].num == null) g[event].num = num;
     }
     return {groups: groups, cutType: timed >= 4 ? "qualify" : "none"};
+  }
+  // Men's event number: trailing int after the men's times, else leading int (open list).
+  function eventNum(before, after) {
+    var a = after.replace(TIME_RE, " ").match(/\d{1,3}/g);
+    if (a) return parseInt(a[a.length - 1], 10);
+    var b = before.replace(TIME_RE, " ").match(/\d{1,3}/g);
+    return b ? parseInt(b[0], 10) : null;
   }
 
   function meetMeta(text) {
@@ -156,14 +165,14 @@
           hits.push(["SCY", cut.cutSCY - scy.cs, scy, cut.cutSCY]);
         if (hits.length) {
           hits.sort(function (a, b) { return b[1] - a[1]; });
-          qual.push({event: ev, course: hits[0][0], under: hits[0][1], row: hits[0][2], std: hits[0][3]});
+          qual.push({event: ev, num: cut.num, course: hits[0][0], under: hits[0][1], row: hits[0][2], std: hits[0][3]});
         } else if (lcm || scy) {
           var gaps = [];
           if (lcm && cut.cutLCM) gaps.push(["LCM", lcm.cs - cut.cutLCM, lcm, cut.cutLCM]);
           if (scy && cut.cutSCY) gaps.push(["SCY", scy.cs - cut.cutSCY, scy, cut.cutSCY]);
           if (gaps.length) {
             gaps.sort(function (a, b) { return a[1] - b[1]; });
-            near.push({event: ev, course: gaps[0][0], off: gaps[0][1], row: gaps[0][2], std: gaps[0][3]});
+            near.push({event: ev, num: cut.num, course: gaps[0][0], off: gaps[0][1], row: gaps[0][2], std: gaps[0][3]});
           }
         } else notime.push(ev);
       });
@@ -181,8 +190,10 @@
           .concat(notime.filter(function (e) { return !DISTANCE[e]; }));
         bonus = cands.slice(0, room);
       }
+      var numOf = {};
+      Object.keys(offered).forEach(function (e) { numOf[e] = (offered[e] || {}).num; });
       out.swimmers.push({name: sw.name, age: sw.age, ageGroup: sw.ageGroup,
-                         hasEvents: !!Object.keys(offered).length,
+                         hasEvents: !!Object.keys(offered).length, numOf: numOf,
                          qual: qual, near: near.slice(0, 6), notime: notime,
                          enter: enter, bonus: bonus, bonusAllow: bonusAllow,
                          cap: cap, chase: near.slice(0, 2)});
@@ -215,8 +226,8 @@
         }
         var pct = need ? 100 * need / here.cs : null;
         var days = here ? daysSince(here.date) : null;
-        rows.push({event: ev, here: here, other: other, level: level, next: nxt || "",
-                   need: need, pct: pct, days: days,
+        rows.push({event: ev, num: (offered[ev] || {}).num, here: here, other: other,
+                   level: level, next: nxt || "", need: need, pct: pct, days: days,
                    stale: days !== null && days >= STALE_DAYS});
       });
       rows.sort(function (a, b) {
